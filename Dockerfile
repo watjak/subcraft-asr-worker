@@ -1,8 +1,7 @@
 FROM nvidia/cuda:12.3.2-cudnn9-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONUNBUFFERED=1 \
-    HF_HOME=/models/huggingface
+    PYTHONUNBUFFERED=1
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -15,8 +14,16 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Models download at first cold start (or mount RunPod Network Volume at /models)
-# This keeps image small (~3GB vs ~15GB) and build fast (~3min vs ~20min)
+# Bake models into image — slow build once, fast cold start every time
+RUN python -c "\
+from faster_whisper import WhisperModel; \
+WhisperModel('large-v3', device='cpu', compute_type='int8'); \
+print('whisper-v3 cached')"
+
+RUN python -c "\
+from transformers import pipeline; \
+pipeline('automatic-speech-recognition', model='biodatlab/whisper-th-large-v3-combined'); \
+print('whisper-th cached')"
 
 COPY src/ src/
 
