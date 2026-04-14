@@ -49,15 +49,14 @@ def get_whisper_v3():
 
 def get_whisper_th():
     if "whisper-th" not in _models:
-        from transformers import pipeline
+        from faster_whisper import WhisperModel
 
-        dtype = torch.float16 if DEVICE == "cuda" else torch.float32
-        logger.info("Loading whisper-th (dtype=%s)", dtype)
-        _models["whisper-th"] = pipeline(
-            "automatic-speech-recognition",
-            model="biodatlab/whisper-th-large-v3-combined",
-            torch_dtype=dtype,
+        compute = "float16" if DEVICE == "cuda" else "int8"
+        logger.info("Loading whisper-th via faster-whisper (compute=%s)", compute)
+        _models["whisper-th"] = WhisperModel(
+            "Vinxscribe/biodatlab-whisper-th-large-v3-faster",
             device=DEVICE,
+            compute_type=compute,
         )
         logger.info("whisper-th ready")
     return _models["whisper-th"]
@@ -95,27 +94,34 @@ def transcribe_v3(audio_path: str, language: str):
 
 
 def transcribe_th(audio_path: str, language: str):
-    pipe = get_whisper_th()
-    result = pipe(audio_path, return_timestamps=True, generate_kwargs={"language": language, "task": "transcribe"})
+    model = get_whisper_th()
+    segments_gen, info = model.transcribe(
+        audio_path,
+        language=language,
+        beam_size=5,
+        word_timestamps=True,
+    )
 
     segments = []
     words = []
-    for i, chunk in enumerate(result.get("chunks", [])):
-        ts = chunk.get("timestamp", (0.0, 0.0))
-        start = ts[0] if ts[0] is not None else 0.0
-        end = ts[1] if ts[1] is not None else start
+    for i, seg in enumerate(segments_gen):
         segments.append({
             "id": i,
-            "start": round(start, 3),
-            "end": round(end, 3),
-            "text": chunk.get("text", "").strip(),
-            "avg_logprob": 0.0,
+            "start": round(seg.start, 3),
+            "end": round(seg.end, 3),
+            "text": seg.text.strip(),
+            "avg_logprob": round(seg.avg_logprob, 4),
         })
+        if seg.words:
+            for w in seg.words:
+                words.append({
+                    "word": w.word.strip(),
+                    "start": round(w.start, 3),
+                    "end": round(w.end, 3),
+                    "confidence": round(w.probability, 4) if hasattr(w, "probability") else 1.0,
+                })
 
-    if not segments and result.get("text"):
-        segments.append({"id": 0, "start": 0.0, "end": 0.0, "text": result["text"].strip(), "avg_logprob": 0.0})
-
-    return {"language": language, "segments": segments, "words": words}
+    return {"language": info.language, "segments": segments, "words": words}
 
 
 MODELS = {"whisper-v3": transcribe_v3, "whisper-th": transcribe_th}

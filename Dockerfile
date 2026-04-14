@@ -14,15 +14,15 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Bake models into image — slow build once, fast cold start every time
+# Bake both models (CTranslate2 format via faster-whisper)
 RUN python -c "\
 from faster_whisper import WhisperModel; \
 WhisperModel('large-v3', device='cpu', compute_type='int8'); \
 print('whisper-v3 cached')"
 
 RUN python -c "\
-from transformers import pipeline; \
-pipeline('automatic-speech-recognition', model='biodatlab/whisper-th-large-v3-combined'); \
+from faster_whisper import WhisperModel; \
+WhisperModel('Vinxscribe/biodatlab-whisper-th-large-v3-faster', device='cpu', compute_type='int8'); \
 print('whisper-th cached')"
 
 COPY src/ src/
